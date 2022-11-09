@@ -1,0 +1,259 @@
+#include <Arduino.h>
+#include <MPU9250.h>
+#include <ESP8266WiFi.h>
+#include <FS.h>
+#include <ArduinoJson.h>
+#define COUNT 50
+
+DynamicJsonDocument doc(1024);
+
+MPU9250 mpu;
+const char *filename = "/test.txt";
+unsigned long startTime[101];
+unsigned long endTime[100];
+int i = 0;
+String str = "";
+void FileRead()
+{
+    File f = SPIFFS.open(filename, "r");
+
+    if (!f)
+    {
+        Serial.println("file open failed");
+    }
+    else
+    {
+        Serial.println("Reading Data from File:");
+        // Data from file
+        for (int i = 0; i < f.size(); i++) // Read upto complete file size
+        {
+            str += (char)f.read();
+        }
+        Serial.print(str);
+        f.close(); // Close file
+        Serial.println("File Closed");
+    }
+}
+
+void FileWrite(String data)
+{
+    File f = SPIFFS.open(filename, "w");
+
+    if (!f)
+    {
+        Serial.println("file open failed");
+    }
+    else
+    {
+        // Write data to file
+        Serial.println("Writing Data to File");
+        f.print(data);
+        f.close();
+    }
+}
+
+
+
+bool isCalibrated()
+{
+    if (doc["EEP_CALIB_FLAG"] == 1)
+    {
+        return true;
+    }
+    return false;
+}
+
+void saveCalibration()
+{
+    Serial.println("Write calibrated parameters to EEPROM");
+    doc["EEP_CALIB_FLAG"] = 1;
+    doc["EEP_ACC_BIAS0"] = mpu.getAccBias(0);
+    doc["EEP_ACC_BIAS1"] = mpu.getAccBias(1);
+    doc["EEP_ACC_BIAS2"] = mpu.getAccBias(2);
+    doc["EEP_GYRO_BIAS0"] = mpu.getGyroBias(0);
+    doc["EEP_GYRO_BIAS1"] = mpu.getGyroBias(1);
+    doc["EEP_GYRO_BIAS2"] = mpu.getGyroBias(2);
+    doc["EEP_MAG_BIAS0"] = mpu.getMagBias(0);
+    doc["EEP_MAG_BIAS1"] = mpu.getMagBias(1);
+    doc["EEP_MAG_BIAS2"] = mpu.getMagBias(2);
+    doc["EEP_MAG_SCALE0"] = mpu.getMagScale(0);
+    doc["EEP_MAG_SCALE1"] = mpu.getMagScale(1);
+    doc["EEP_MAG_SCALE2"] = mpu.getMagScale(2);
+
+
+    serializeJson(doc, str);
+    Serial.println(str);
+    FileWrite(str);
+
+
+}
+
+void print_calibration() {
+    Serial.println("< calibration parameters >");
+    Serial.println("accel bias [g]: ");
+    Serial.print(mpu.getAccBiasX() * 1000.f / (float)MPU9250::CALIB_ACCEL_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getAccBiasY() * 1000.f / (float)MPU9250::CALIB_ACCEL_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getAccBiasZ() * 1000.f / (float)MPU9250::CALIB_ACCEL_SENSITIVITY);
+    Serial.println();
+    Serial.println("gyro bias [deg/s]: ");
+    Serial.print(mpu.getGyroBiasX() / (float)MPU9250::CALIB_GYRO_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getGyroBiasY() / (float)MPU9250::CALIB_GYRO_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getGyroBiasZ() / (float)MPU9250::CALIB_GYRO_SENSITIVITY);
+    Serial.println();
+    Serial.println("mag bias [mG]: ");
+    Serial.print(mpu.getMagBiasX());
+    Serial.print(", ");
+    Serial.print(mpu.getMagBiasY());
+    Serial.print(", ");
+    Serial.print(mpu.getMagBiasZ());
+    Serial.println();
+    Serial.println("mag scale []: ");
+    Serial.print(mpu.getMagScaleX());
+    Serial.print(", ");
+    Serial.print(mpu.getMagScaleY());
+    Serial.print(", ");
+    Serial.print(mpu.getMagScaleZ());
+    Serial.println();
+}
+
+
+bool loadCalibration()
+{
+    Serial.println("Load calibrated parameters from EEPROM");
+    if (isCalibrated())
+    {
+        Serial.println("calibrated? : YES");
+        Serial.println("load calibrated values");
+        mpu.setAccBias(
+            (float) doc["EEP_ACC_BIAS0"],
+            (float) doc["EEP_ACC_BIAS1"],
+            (float) doc["EEP_ACC_BIAS2"]);
+        mpu.setGyroBias(
+            (float) doc["EEP_GYRO_BIAS0"],
+            (float) doc["EEP_GYRO_BIAS1"],
+            (float) doc["EEP_GYRO_BIAS2"]);
+        mpu.setMagBias(
+            (float) doc["EEP_MAG_BIAS0"],
+            (float) doc["EEP_MAG_BIAS1"],
+            (float) doc["EEP_MAG_BIAS2"]);
+        mpu.setMagScale(
+            (float) doc["EEP_MAG_SCALE0"],
+            (float) doc["EEP_MAG_SCALE1"],
+            (float) doc["EEP_MAG_SCALE2"]);
+        return 1;
+    }
+    else
+    {
+        Serial.println("calibrated? : NO");
+        Serial.println("load default values");
+        mpu.setAccBias(0., 0., 0.);
+        mpu.setGyroBias(0., 0., 0.);
+        mpu.setMagBias(0., 0., 0.);
+        mpu.setMagScale(1., 1., 1.);
+        return false;
+    }
+    return false;
+}
+
+
+
+
+void setup()
+{
+    Serial.begin(115200);
+     //Initialize File System
+  if(SPIFFS.begin())
+  {
+    Serial.println("SPIFFS Initialize....ok");
+  }
+  else
+  {
+    Serial.println("SPIFFS Initialization...failed");
+  }
+
+  
+
+    doc["EEP_CALIB_FLAG"] = 0;
+
+    
+    Wire.begin();
+    delay(2000);
+
+    if (!mpu.setup(0x68))
+    { // change to your own address
+        while (1)
+        {
+            Serial.println("MPU connection failed. Please check your connection with `connection_check` example.");
+            delay(5000);
+        }
+    }
+
+    delay(5000);
+
+    FileRead();
+    deserializeJson(doc, str);
+
+    if (!loadCalibration())
+    {
+        // calibrate anytime you want to
+        Serial.println("Accel Gyro calibration will start in 5sec.");
+        Serial.println("Please leave the device still on the flat plane.");
+        mpu.verbose(true);
+        delay(5000);
+        mpu.calibrateAccelGyro();
+
+        Serial.println("Mag calibration will start in 5sec.");
+        Serial.println("Please Wave device in a figure eight until done.");
+        delay(5000);
+        mpu.calibrateMag();
+
+        print_calibration();
+        mpu.verbose(false);
+
+        saveCalibration();
+    }
+
+    startTime[0] = micros();
+    mpu.update();
+    Serial.print(mpu.getYaw(), 2);
+    Serial.print(",");
+    Serial.print(mpu.getPitch(), 2);
+    Serial.print(",");
+    Serial.println(mpu.getRoll(), 2);
+}
+
+
+
+void loop()
+{
+    if( i < COUNT ){
+    startTime[i] = micros();
+    mpu.update();
+    endTime[i] = micros() - startTime[i];
+    Serial.print(mpu.getYaw(), 2);
+    Serial.print(",");
+    Serial.print(mpu.getPitch(), 2);
+    Serial.print(",");
+    Serial.println(mpu.getRoll(), 2);
+    Serial.println(i);
+    Serial.print(startTime[i]);
+    Serial.print(" ");
+    Serial.println(endTime[i]);
+    i++;
+    }
+    else if(i>=COUNT)
+    {
+        long dif;
+        long sum;
+        for(int j = 0; i < 5; j++) {
+            sum = sum + endTime[j];
+            dif = sum/COUNT;
+        }
+        Serial.println("Среднее значение равно " + String (dif));
+        i=0;
+    }
+}
